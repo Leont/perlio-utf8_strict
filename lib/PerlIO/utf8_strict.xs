@@ -11,6 +11,8 @@
 
 typedef struct {
 	PerlIOBuf buf;
+	STDCHAR leftovers[MAX_BYTES];
+	size_t leftover_length;
 } PerlIOUnicode;
 
 static IV PerlIOUnicode_pushed(pTHX_ PerlIO* f, const char* mode, SV* arg, PerlIO_funcs* tab) {
@@ -22,26 +24,25 @@ static IV PerlIOUnicode_pushed(pTHX_ PerlIO* f, const char* mode, SV* arg, PerlI
 }
 
 static IV PerlIOUnicode_fill(pTHX_ PerlIO* f) {
-	PerlIOBuf * const b = PerlIOSelf(f, PerlIOBuf);
+	PerlIOUnicode * const u = PerlIOSelf(f, PerlIOUnicode);
+	PerlIOBuf * const b = &u->buf;
 	PerlIO *n = PerlIONext(f);
 	SSize_t avail;
 
-	/*  FIXME */
-//	if (PerlIO_flush(f) != 0)		/* XXXX Check that its seek() succeeded?! */
-//		return -1;
-//	if (PerlIOBase(f)->flags & PERLIO_F_TTY)
-//		PerlIOBase_flush_linebuf(aTHX);
+	if (PerlIO_flush(f) != 0)
+		return -1;
+	if (PerlIOBase(f)->flags & PERLIO_F_TTY)
+		PerlIOBase_flush_linebuf(aTHX);
 
 	if (!b->buf)
 		PerlIO_get_base(f);
 
 	assert(b->buf);
 
-	if (b->end != b->buf && b->end != b->buf + b->bufsiz) {
-		Perl_warn(aTHX_ "# Moving!\n");
-		Size_t len = b->buf + b->bufsiz - b->end;
-		Move(b->ptr, b->buf, len, char);
-		b->ptr = b->end = b->buf + len;
+	if (u->leftover_length) {
+		Copy(u->leftovers, b->buf, u->leftover_length, STDCHAR);
+		b->ptr = b->end = b->buf + u->leftover_length;
+		u->leftover_length = 0;
 	}
 	else {
 		b->ptr = b->end = b->buf;
@@ -77,23 +78,23 @@ static IV PerlIOUnicode_fill(pTHX_ PerlIO* f) {
 				avail = fit;
 			Copy(ptr, b->ptr, avail, STDCHAR);
 			PerlIO_set_ptrcnt(n, ptr + avail, cnt - avail);
-			if (cnt == avail && PerlIOBase(n)->flags & PERLIO_F_EOF)
-				PerlIOBase(f)->flags |= PERLIO_F_EOF;
 		}
 	}
 	else {
 		avail = PerlIO_read(n, b->ptr, fit);
 	}
 	if (avail <= 0) {
-		if (avail == 0)
-			PerlIOBase(f)->flags |= PERLIO_F_EOF;
-		else
-			PerlIOBase(f)->flags |= PERLIO_F_ERROR;
+		PerlIOBase(f)->flags |= (avail == 0) ? PERLIO_F_EOF : PERLIO_F_ERROR;
 		return -1;
 	}
 	is_utf8_string_loc(b->buf, avail + fit, (const U8**) &b->end);
-	if (b->end < b->ptr + avail && ((b->ptr + avail) - b->end >= MAX_BYTES || PerlIOBase(f)->flags & PERLIO_F_EOF ))
-		Perl_croak("Invalid unicode character");
+	if (b->end < b->ptr + avail) {
+		size_t len = b->ptr + avail - b->end;
+		if (len >= MAX_BYTES || PerlIOBase(f)->flags & PERLIO_F_EOF)
+			Perl_croak("Invalid unicode character");
+		Copy(b->end, u->leftovers, len, char);
+		u->leftover_length = len;
+	}
 	PerlIOBase(f)->flags |= PERLIO_F_RDBUF;
 	
 	return 0;
@@ -102,7 +103,7 @@ static IV PerlIOUnicode_fill(pTHX_ PerlIO* f) {
 PERLIO_FUNCS_DECL(PerlIO_utf8_strict) = {
 	sizeof(PerlIO_funcs),
 	"utf8_strict",
-	sizeof(PerlIOBuf),
+	sizeof(PerlIOUnicode),
 	PERLIO_K_BUFFERED|PERLIO_K_UTF8,
 	PerlIOUnicode_pushed,
 	PerlIOBuf_popped,
@@ -130,7 +131,7 @@ PERLIO_FUNCS_DECL(PerlIO_utf8_strict) = {
 	PerlIOBuf_set_ptrcnt,
 };
 
-MODULE = PerlIO::utf8_strict PACKAGE = PerlIO::unicode
+MODULE = PerlIO::utf8_strict
 
 BOOT:
 	PerlIO_define_layer(aTHX_ &PerlIO_utf8_strict);
