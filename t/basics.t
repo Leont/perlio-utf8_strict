@@ -9,12 +9,17 @@ use Test::Exception;
 
 use File::Spec::Functions qw/catfile/;
 
+my $builder = Test::More->builder;
+binmode $builder->output,         ":utf8";
+binmode $builder->failure_output, ":utf8";
+binmode $builder->todo_output,    ":utf8";
+
 my $filename = catfile(qw/corpus test1.txt/);
 open my $fh, '<:utf8_strict', $filename or die "Couldn't open file $filename";
 
 my $line = <$fh>;
 
-is($line, "Foö-Báŗ\n", 'Content is Foo-Bar with accents');
+is($line, "Foö-Báŗ\n", 'Content is Foö-Báŗ');
 
 my $filename2 = catfile(qw/corpus test1-latin1.txt/);
 open my $fh2, '<:utf8_strict', $filename2 or die "Couldn't open file $filename2";
