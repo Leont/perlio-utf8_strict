@@ -3,11 +3,73 @@
 #include "XSUB.h"
 #include "perliol.h"
 
-#if 0
-#define MAX_BYTES UTF8_MAXBYTES
-#else
 #define MAX_BYTES 4
-#endif
+
+static const U8 xs_utf8_sequence_len[0x100] = {
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, /* 0x00-0x0F */
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, /* 0x10-0x1F */
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, /* 0x20-0x2F */
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, /* 0x30-0x3F */
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, /* 0x40-0x4F */
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, /* 0x50-0x5F */
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, /* 0x60-0x6F */
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, /* 0x70-0x7F */
+    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, /* 0x80-0x8F */
+    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, /* 0x90-0x9F */
+    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, /* 0xA0-0xAF */
+    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, /* 0xB0-0xBF */
+    0,0,2,2,2,2,2,2,2,2,2,2,2,2,2,2, /* 0xC0-0xCF */
+    2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2, /* 0xD0-0xDF */
+    3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3, /* 0xE0-0xEF */
+    4,4,4,4,4,0,0,0,0,0,0,0,0,0,0,0, /* 0xF0-0xFF */
+};
+
+static int is_complete(const STDCHAR* current, const STDCHAR* end) {
+	return current + xs_utf8_sequence_len[*(U8*)current] <= end;
+}
+
+static int is_valid(const STDCHAR* current) {
+	size_t length = xs_utf8_sequence_len[*(U8*)current];
+	switch (length) {
+		uint32_t v;
+		case 0:
+			return 0;
+		case 1:
+			return 1;
+		case 2:
+			/* 110xxxxx 10xxxxxx */
+			if ((current[1] & 0xC0) != 0x80)
+				return 0;
+			return 2;
+		case 3:
+			v = ((U32)current[0] << 16) | ((U32)current[1] <<  8) | ((U32)current[2]);
+			/* 1110xxxx 10xxxxxx 10xxxxxx */
+			if ((v & 0x00F0C0C0) != 0x00E08080 ||
+			  /* Non-shortest form */
+			  v < 0x00E0A080 ||
+			  /* Surrogates U+D800..U+DFFF */
+			  (v & 0x00EFA080) == 0x00EDA080 ||
+			  /* Non-characters U+FDD0..U+FDEF, U+FFFE..U+FFFF */
+			  (v >= 0x00EFB790 && (v <= 0x00EFB7AF || v >= 0x00EFBFBE)))
+				return 0;
+			return 3;
+		case 4:
+			v = ((U32)current[0] << 24)
+			  | ((U32)current[1] << 16)
+			  | ((U32)current[2] <<  8)
+			  | ((U32)current[3]);
+			/* 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx */
+			if ((v & 0xF8C0C0C0) != 0xF0808080 ||
+			  /* Non-shortest form */
+			  v < 0xF0908080 ||
+			  /* Greater than U+10FFFF */
+			  v > 0xF48FBFBF ||
+			  /* Non-characters U+nFFFE..U+nFFFF on plane 1-16 */
+			  (v & 0x000FBFBE) == 0x000FBFBE)
+				return 0;
+			return 4;
+	}
+}
 
 typedef struct {
 	PerlIOBuf buf;
@@ -87,13 +149,23 @@ static IV PerlIOUnicode_fill(pTHX_ PerlIO* f) {
 		PerlIOBase(f)->flags |= (avail == 0) ? PERLIO_F_EOF : PERLIO_F_ERROR;
 		return -1;
 	}
-	is_utf8_string_loc(b->buf, avail + fit, (const U8**) &b->end);
-	if (b->end < b->ptr + avail) {
-		size_t len = b->ptr + avail - b->end;
-		if (len >= MAX_BYTES || PerlIOBase(f)->flags & PERLIO_F_EOF)
-			Perl_croak("Invalid unicode character");
-		Copy(b->end, u->leftovers, len, char);
-		u->leftover_length = len;
+	STDCHAR* end = b->ptr + avail;
+	while (b->end < end) {
+		if (is_complete(b->end, end)) {
+			int len = is_valid(b->end);
+			if (len)
+				b->end += len;
+			else 
+				Perl_croak("Invalid unicode character");
+		}
+		else if (PerlIOBase(f)->flags & PERLIO_F_EOF)
+			Perl_croak("Invalid unicode character at file end");
+		else {
+			size_t len = b->ptr + avail - b->end;
+			Copy(b->end, u->leftovers, len, char);
+			u->leftover_length = len;
+			break;
+		}
 	}
 	PerlIOBase(f)->flags |= PERLIO_F_RDBUF;
 	
