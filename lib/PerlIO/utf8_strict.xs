@@ -78,7 +78,7 @@ typedef struct {
 } PerlIOUnicode;
 
 static IV PerlIOUnicode_pushed(pTHX_ PerlIO* f, const char* mode, SV* arg, PerlIO_funcs* tab) {
-	if (PerlIOBuf_pushed(f, mode, arg, tab) == 0) {
+	if (PerlIOBuf_pushed(aTHX_ f, mode, arg, tab) == 0) {
 		PerlIOBase(f)->flags |= PERLIO_F_UTF8;
 		return 0;
 	}
@@ -164,10 +164,10 @@ static IV PerlIOUnicode_fill(pTHX_ PerlIO* f) {
 			if (len)
 				b->end += len;
 			else 
-				Perl_croak("Invalid unicode character");
+				Perl_croak(aTHX_ "Invalid unicode character");
 		}
 		else if (PerlIO_eof(n))
-			Perl_croak("Invalid unicode character at file end");
+			Perl_croak(aTHX_ "Invalid unicode character at file end");
 		else {
 			size_t len = b->ptr + avail - b->end;
 			Copy(b->end, u->leftovers, len, char);
