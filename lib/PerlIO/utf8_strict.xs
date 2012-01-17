@@ -90,6 +90,7 @@ static IV PerlIOUnicode_fill(pTHX_ PerlIO* f) {
 	PerlIOBuf * const b = &u->buf;
 	PerlIO *n = PerlIONext(f);
 	SSize_t avail;
+	Size_t read_bytes = 0;
 
 	if (PerlIO_flush(f) != 0)
 		return -1;
@@ -103,7 +104,8 @@ static IV PerlIOUnicode_fill(pTHX_ PerlIO* f) {
 
 	if (u->leftover_length) {
 		Copy(u->leftovers, b->buf, u->leftover_length, STDCHAR);
-		b->ptr = b->end = b->buf + u->leftover_length;
+		b->end = b->buf + u->leftover_length;
+		read_bytes = u->leftover_length;
 		u->leftover_length = 0;
 	}
 	else {
@@ -138,18 +140,24 @@ static IV PerlIOUnicode_fill(pTHX_ PerlIO* f) {
 			const SSize_t cnt = avail;
 			if (avail > fit)
 				avail = fit;
-			Copy(ptr, b->ptr, avail, STDCHAR);
+			Copy(ptr, b->end, avail, STDCHAR);
 			PerlIO_set_ptrcnt(n, ptr + avail, cnt - avail);
+			read_bytes += avail;
 		}
 	}
 	else {
 		avail = PerlIO_read(n, b->ptr, fit);
+		if (avail > 0)
+			read_bytes += avail;
 	}
 	if (avail <= 0) {
-		PerlIOBase(f)->flags |= (avail == 0) ? PERLIO_F_EOF : PERLIO_F_ERROR;
-		return -1;
+		if (avail < 0 || read_bytes == 0 && PerlIO_eof(n)) {
+			PerlIOBase(f)->flags |= (avail == 0) ? PERLIO_F_EOF : PERLIO_F_ERROR;
+			return -1;
+		}
 	}
-	STDCHAR* end = b->ptr + avail;
+	STDCHAR* end = b->end + avail;
+	b->end = b->buf;
 	while (b->end < end) {
 		if (is_complete(b->end, end)) {
 			int len = is_valid(b->end);
@@ -158,7 +166,7 @@ static IV PerlIOUnicode_fill(pTHX_ PerlIO* f) {
 			else 
 				Perl_croak("Invalid unicode character");
 		}
-		else if (PerlIOBase(f)->flags & PERLIO_F_EOF)
+		else if (PerlIO_eof(n))
 			Perl_croak("Invalid unicode character at file end");
 		else {
 			size_t len = b->ptr + avail - b->end;
