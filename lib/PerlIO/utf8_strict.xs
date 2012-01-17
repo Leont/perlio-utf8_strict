@@ -28,7 +28,9 @@ static int is_complete(const STDCHAR* current, const STDCHAR* end) {
 	return current + xs_utf8_sequence_len[*(U8*)current] <= end;
 }
 
-static int is_valid(const STDCHAR* current) {
+typedef enum { STRICT_UTF8, ALLOW_SURROGATES, ALLOW_NONCHARACTERS, ALLOW_NONSHORTEST } utf8_flags;
+
+static int is_valid(const STDCHAR* current, int flags) {
 	size_t length = xs_utf8_sequence_len[*(U8*)current];
 	switch (length) {
 		uint32_t v;
@@ -75,11 +77,57 @@ typedef struct {
 	PerlIOBuf buf;
 	STDCHAR leftovers[MAX_BYTES];
 	size_t leftover_length;
+	int flags;
 } PerlIOUnicode;
 
+static struct {
+	const char* name;
+	size_t length;
+	utf8_flags value;
+} map[] = {
+	{ STR_WITH_LEN("allow_surrogates"), ALLOW_SURROGATES },
+	{ STR_WITH_LEN("allow_noncharacters"), ALLOW_NONCHARACTERS },
+	{ STR_WITH_LEN("allow_nonshortest"), ALLOW_NONSHORTEST },
+	{ STR_WITH_LEN("loose"), ALLOW_SURROGATES | ALLOW_NONCHARACTERS | ALLOW_NONSHORTEST },
+};
+
+static int lookup_parameter(pTHX_ const char* ptr, size_t len) {
+	int i;
+	for (i = 0; i < sizeof map / sizeof *map; ++i) {
+		if (map[i].length == len && memcmp(ptr, map[i].name, len) == 0)
+			return map[i].value;
+	}
+	Perl_croak(aTHX_ "Unknown argument to :utf8_strict: %*s", len, ptr);
+}
+static int parse_parameters(pTHX_ SV* param) {
+	STRLEN len;
+	if (!param || !SvOK(param))
+		return 0;
+
+	const char* begin = SvPV(param, len);
+	const char* delim = strchr(begin, ',');
+	if(delim) {
+		int ret = 0;
+		const char* end = begin + len;
+		do {
+			ret |= lookup_parameter(aTHX_ begin, delim - begin);
+			begin = delim + 1;
+			delim = strchr(begin, ',');
+		} while (delim);
+		if (begin < end)
+			ret |= lookup_parameter(aTHX_ begin, end - begin);
+		return ret;
+	}
+	else {
+		return lookup_parameter(aTHX_ begin, len);
+	}
+}
+
 static IV PerlIOUnicode_pushed(pTHX_ PerlIO* f, const char* mode, SV* arg, PerlIO_funcs* tab) {
+	int flags = parse_parameters(aTHX_ arg);
 	if (PerlIOBuf_pushed(aTHX_ f, mode, arg, tab) == 0) {
 		PerlIOBase(f)->flags |= PERLIO_F_UTF8;
+		PerlIOSelf(f, PerlIOUnicode)->flags = flags;
 		return 0;
 	}
 	return -1;
@@ -160,7 +208,7 @@ static IV PerlIOUnicode_fill(pTHX_ PerlIO* f) {
 	b->end = b->buf;
 	while (b->end < end) {
 		if (is_complete(b->end, end)) {
-			int len = is_valid(b->end);
+			int len = is_valid(b->end, u->flags);
 			if (len)
 				b->end += len;
 			else 
