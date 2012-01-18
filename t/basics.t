@@ -14,16 +14,28 @@ binmode $builder->output,         ":utf8";
 binmode $builder->failure_output, ":utf8";
 binmode $builder->todo_output,    ":utf8";
 
-my $filename = catfile(qw/corpus test1.txt/);
-open my $fh, '<:utf8_strict', $filename or die "Couldn't open file $filename";
+{
+    my $filename = catfile(qw/corpus test1.txt/);
+    open my $fh, '<:utf8_strict', $filename or die "Couldn't open file $filename";
 
-my $line = <$fh>;
+    my $line = <$fh>;
 
-is($line, "Foö-Báŗ\n", 'Content is Foö-Báŗ');
+    is($line, "Foö-Báŗ\n", 'Content is Foö-Báŗ');
+}
 
-my $filename2 = catfile(qw/corpus test1-latin1.txt/);
-open my $fh2, '<:utf8_strict', $filename2 or die "Couldn't open file $filename2";
+{
+    my $filename = catfile(qw/corpus quickbrown.txt/);
+    open my $fh, '<:utf8_strict', $filename or die "Couldn't open file $filename";
 
-throws_ok { $line = <$fh2> } qr/^Invalid unicode character at /, 'Trying to read invalidly encoded utf8 fails' or diag "Just read '$line'";
+    lives_ok { my $data = do { local $/; <$fh> } } 'successfull reading quickbrown.txt'
+}
+
+{
+    my $filename = catfile(qw/corpus test1-latin1.txt/);
+    open my $fh, '<:utf8_strict', $filename or die "Couldn't open file $filename";
+
+    my $line;
+    throws_ok { $line = <$fh> } qr/^Invalid unicode character at /, 'Trying to read ill-formed encoded UTF-8 fails' or diag "Just read '$line'";
+}
 
 done_testing;
