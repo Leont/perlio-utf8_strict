@@ -18,7 +18,7 @@ static const U8 xs_utf8_sequence_len[0x100] = {
     0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, /* 0x90-0x9F */
     0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, /* 0xA0-0xAF */
     0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, /* 0xB0-0xBF */
-    0,0,2,2,2,2,2,2,2,2,2,2,2,2,2,2, /* 0xC0-0xCF */
+    2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2, /* 0xC0-0xCF */
     2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2, /* 0xD0-0xDF */
     3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3, /* 0xE0-0xEF */
     4,4,4,4,4,0,0,0,0,0,0,0,0,0,0,0, /* 0xF0-0xFF */
@@ -40,7 +40,9 @@ static int is_valid(const STDCHAR* current, int flags) {
 			return 1;
 		case 2:
 			/* 110xxxxx 10xxxxxx */
-			if ((current[1] & 0xC0) != 0x80)
+			if (((U8)current[1] & 0xC0) != 0x80 ||
+			  /* Non-shortest form */
+			  (U8)current[0] < 0xC2)
 				return 0;
 			return 2;
 		case 3:
