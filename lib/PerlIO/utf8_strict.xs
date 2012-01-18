@@ -24,14 +24,14 @@ static const U8 xs_utf8_sequence_len[0x100] = {
     4,4,4,4,4,0,0,0,0,0,0,0,0,0,0,0, /* 0xF0-0xFF */
 };
 
-static int is_complete(const STDCHAR* current, const STDCHAR* end) {
-	return current + xs_utf8_sequence_len[*(U8*)current] <= end;
+static int is_complete(const U8* current, const U8* end) {
+	return current + xs_utf8_sequence_len[*current] <= end;
 }
 
 typedef enum { STRICT_UTF8, ALLOW_SURROGATES, ALLOW_NONCHARACTERS, ALLOW_NONSHORTEST } utf8_flags;
 
-static int is_valid(const STDCHAR* current, int flags) {
-	size_t length = xs_utf8_sequence_len[*(U8*)current];
+static int is_valid(const U8* current, int flags) {
+	size_t length = xs_utf8_sequence_len[*current];
 	switch (length) {
 		uint32_t v;
 		case 0:
@@ -40,9 +40,9 @@ static int is_valid(const STDCHAR* current, int flags) {
 			return 1;
 		case 2:
 			/* 110xxxxx 10xxxxxx */
-			if (((U8)current[1] & 0xC0) != 0x80 ||
+			if ((current[1] & 0xC0) != 0x80 ||
 			  /* Non-shortest form */
-			  (U8)current[0] < 0xC2)
+			  current[0] < 0xC2)
 				return 0;
 			return 2;
 		case 3:
@@ -209,8 +209,8 @@ static IV PerlIOUnicode_fill(pTHX_ PerlIO* f) {
 	STDCHAR* end = b->end + avail;
 	b->end = b->buf;
 	while (b->end < end) {
-		if (is_complete(b->end, end)) {
-			int len = is_valid(b->end, u->flags);
+		if (is_complete((const U8*)b->end, (const U8*)end)) {
+			int len = is_valid((const U8 *)b->end, u->flags);
 			if (len)
 				b->end += len;
 			else 
