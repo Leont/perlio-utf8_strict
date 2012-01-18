@@ -20,3 +20,5 @@ for (my $cp = 0x00; $cp < 0x10FFFF; $cp += 0x1000) {
     } $name;
 }
 
+done_testing;
+
