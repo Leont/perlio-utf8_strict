@@ -206,7 +206,7 @@ static IV PerlIOUnicode_fill(pTHX_ PerlIO* f) {
 			return -1;
 		}
 	}
-	STDCHAR* end = b->end + avail;
+	STDCHAR* end = b->buf + read_bytes;
 	b->end = b->buf;
 	while (b->end < end) {
 		if (is_complete((const U8*)b->end, (const U8*)end)) {
@@ -219,7 +219,7 @@ static IV PerlIOUnicode_fill(pTHX_ PerlIO* f) {
 		else if (PerlIO_eof(n))
 			Perl_croak(aTHX_ "Invalid unicode character at file end");
 		else {
-			size_t len = b->ptr + avail - b->end;
+			size_t len = b->buf + read_bytes - b->end;
 			Copy(b->end, u->leftovers, len, char);
 			u->leftover_length = len;
 			break;
