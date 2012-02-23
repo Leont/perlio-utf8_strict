@@ -231,6 +231,13 @@ static IV PerlIOUnicode_fill(pTHX_ PerlIO* f) {
 	return 0;
 }
 
+static SSize_t PerlIOUnicode_write(pTHX_ PerlIO* f, const void* buf, Size_t size) {
+	PerlIO* next = PerlIONext(f);
+	if (PerlIOBase(f)->flags & PERLIO_F_RDBUF)
+		PerlIO_flush(f);
+	return PerlIOBase(next)->tab->kind & PERLIO_K_BUFFERED ? PerlIO_write(next, buf, size) : PerlIOBuf_write(aTHX_ f, buf, size);
+}
+
 PERLIO_FUNCS_DECL(PerlIO_utf8_strict) = {
 	sizeof(PerlIO_funcs),
 	"utf8_strict",
@@ -245,7 +252,11 @@ PERLIO_FUNCS_DECL(PerlIO_utf8_strict) = {
 	PerlIOBuf_dup,
 	PerlIOBuf_read,
 	PerlIOBuf_unread,
+#ifdef UTF8_FASTWRITE
+	PerlIOUnicode_write,
+#else
 	PerlIOBuf_write,
+#endif
 	PerlIOBuf_seek,
 	PerlIOBuf_tell,
 	PerlIOBuf_close,
