@@ -90,6 +90,7 @@ static struct {
 	{ STR_WITH_LEN("allow_surrogates"), ALLOW_SURROGATES },
 	{ STR_WITH_LEN("allow_noncharacters"), ALLOW_NONCHARACTERS },
 	{ STR_WITH_LEN("allow_nonshortest"), ALLOW_NONSHORTEST },
+	{ STR_WITH_LEN("strict"), 0 },
 	{ STR_WITH_LEN("loose"), ALLOW_SURROGATES | ALLOW_NONCHARACTERS | ALLOW_NONSHORTEST },
 };
 
