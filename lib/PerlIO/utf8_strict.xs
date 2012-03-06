@@ -18,61 +18,144 @@ static const U8 xs_utf8_sequence_len[0x100] = {
     0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, /* 0x90-0x9F */
     0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, /* 0xA0-0xAF */
     0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, /* 0xB0-0xBF */
-    2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2, /* 0xC0-0xCF */
+    0,0,2,2,2,2,2,2,2,2,2,2,2,2,2,2, /* 0xC0-0xCF */
     2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2, /* 0xD0-0xDF */
     3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3, /* 0xE0-0xEF */
     4,4,4,4,4,0,0,0,0,0,0,0,0,0,0,0, /* 0xF0-0xFF */
 };
 
-static int is_complete(const U8* current, const U8* end) {
-	return current + xs_utf8_sequence_len[*current] <= end;
+
+typedef enum { STRICT_UTF8=0, ALLOW_SURROGATES=1, ALLOW_NONCHARACTERS=2, ALLOW_NONSHORTEST=4 } utf8_flags;
+
+
+static STRLEN skip_sequence(const U8 *cur, const STRLEN len) {
+	STRLEN i, n = xs_utf8_sequence_len[*cur];
+
+	if (n < 1 || len < 2)
+		return 1;
+
+	switch (cur[0]) {
+		case 0xE0: if ((cur[1] & 0xE0) != 0xA0) return 1; break;
+		case 0xED: if ((cur[1] & 0xE0) != 0x80) return 1; break;
+		case 0xF4: if ((cur[1] & 0xF0) != 0x80) return 1; break;
+		case 0xF0: if ((cur[1] & 0xF0) == 0x80) return 1; /* FALLTROUGH */
+		default:   if ((cur[1] & 0xC0) != 0x80) return 1; break;
+	}
+
+	if (n > len)
+		n = len;
+	for (i = 2; i < n; i++)
+		if ((cur[i] & 0xC0) != 0x80)
+			break;
+	return i;
 }
 
-typedef enum { STRICT_UTF8, ALLOW_SURROGATES, ALLOW_NONCHARACTERS, ALLOW_NONSHORTEST } utf8_flags;
+static void report_illformed(pTHX_ const U8 *cur, STRLEN len, bool eof) {
+	static const char *hex = "0123456789ABCDEF";
+	const char *fmt;
+	char seq[MAX_BYTES * 3];
+	char *d = seq;
 
-static int is_valid(const U8* current, int flags) {
-	size_t length = xs_utf8_sequence_len[*current];
-	switch (length) {
-		uint32_t v;
-		case 0:
-			return 0;
-		case 1:
-			return 1;
-		case 2:
-			/* 110xxxxx 10xxxxxx */
-			if ((current[1] & 0xC0) != 0x80 ||
-			  /* Non-shortest form */
-			  current[0] < 0xC2)
-				return 0;
-			return 2;
-		case 3:
-			v = ((U32)current[0] << 16) | ((U32)current[1] <<  8) | ((U32)current[2]);
-			/* 1110xxxx 10xxxxxx 10xxxxxx */
-			if ((v & 0x00F0C0C0) != 0x00E08080 ||
-			  /* Non-shortest form */
-			  v < 0x00E0A080 ||
-			  /* Surrogates U+D800..U+DFFF */
-			  (v & 0x00EFA080) == 0x00EDA080 ||
-			  /* Non-characters U+FDD0..U+FDEF, U+FFFE..U+FFFF */
-			  (v >= 0x00EFB790 && (v <= 0x00EFB7AF || v >= 0x00EFBFBE)))
-				return 0;
-			return 3;
-		case 4:
-			v = ((U32)current[0] << 24)
-			  | ((U32)current[1] << 16)
-			  | ((U32)current[2] <<  8)
-			  | ((U32)current[3]);
-			/* 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx */
-			if ((v & 0xF8C0C0C0) != 0xF0808080 ||
-			  /* Non-shortest form */
-			  v < 0xF0908080 ||
-			  /* Greater than U+10FFFF */
-			  v > 0xF48FBFBF ||
-			  /* Non-characters U+nFFFE..U+nFFFF on plane 1-16 */
-			  (v & 0x000FBFBE) == 0x000FBFBE)
-				return 0;
-			return 4;
+	if (eof)
+		fmt = "Can't decode ill-formed UTF-8 octet sequence <%s> at end of file";
+	else
+		fmt = "Can't decode ill-formed UTF-8 octet sequence <%s>";
+
+	while (len-- > 0) {
+		const U8 c = *cur++;
+		*d++ = hex[c >> 4];
+		*d++ = hex[c & 15];
+		if (len)
+			*d++ = ' ';
 	}
+	*d = 0;
+	Perl_croak(aTHX_ fmt, seq);
+}
+
+static void report_noncharacter(pTHX_ UV usv) {
+	static const char *fmt = "Can't interchange noncharacter code point U+%"UVXf;
+	Perl_croak(aTHX_ fmt, usv);
+}
+
+static STRLEN validate(pTHX_ const U8 *buf, const U8 *end, const int flags, const bool eof) {
+	const U8 *cur = buf;
+	const U8 *end4 = end - 4;
+	STRLEN skip = 0;
+	uint32_t v;
+
+	while (cur < end4) {
+		while (cur < end4 && *cur < 0x80)
+			cur++;
+
+	  check:
+		switch (xs_utf8_sequence_len[*cur]) {
+			case 0:
+				goto illformed;
+			case 1:
+				cur += 1;
+				break;
+			case 2:
+				/* 110xxxxx 10xxxxxx */
+				if ((cur[1] & 0xC0) != 0x80)
+					goto illformed;
+				cur += 2;
+				break;
+			case 3:
+				v = ((U32)cur[0] << 16)
+				  | ((U32)cur[1] <<  8)
+				  | ((U32)cur[2]);
+				/* 1110xxxx 10xxxxxx 10xxxxxx */
+				if ((v & 0x00F0C0C0) != 0x00E08080 ||
+					/* Non-shortest form */
+					v < 0x00E0A080 ||
+					/* Surrogates U+D800..U+DFFF */
+					(v & 0x00EFA080) == 0x00EDA080)
+					goto illformed;
+				/* Non-characters U+FDD0..U+FDEF, U+FFFE..U+FFFF */
+				if (!(flags & ALLOW_NONCHARACTERS) && v >= 0x00EFB790 && (v <= 0x00EFB7AF || v >= 0x00EFBFBE))
+					goto noncharacter;
+				cur += 3;
+				break;
+			case 4:
+				v = ((U32)cur[0] << 24)
+				  | ((U32)cur[1] << 16)
+				  | ((U32)cur[2] <<  8)
+				  | ((U32)cur[3]);
+				/* 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx */
+				if ((v & 0xF8C0C0C0) != 0xF0808080 ||
+					/* Non-shortest form */
+					v < 0xF0908080 ||
+					/* Greater than U+10FFFF */
+					v > 0xF48FBFBF)
+					goto illformed;
+				/* Non-characters U+nFFFE..U+nFFFF on plane 1-16 */
+				if (!(flags & ALLOW_NONCHARACTERS) && (v & 0x000FBFBE) == 0x000FBFBE)
+					goto noncharacter;
+				cur += 4;
+				break;
+		}
+	}
+	
+	if (cur < end) {
+		if (cur + xs_utf8_sequence_len[*cur] <= end)
+			goto check;
+		skip = skip_sequence(cur, end - cur);
+		if (eof || cur + skip < end)
+			goto illformed;
+	}
+	return cur - buf;
+
+  illformed:
+	if (!skip)
+		skip = skip_sequence(cur, end - cur);
+	report_illformed(aTHX_ cur, skip, eof);
+
+  noncharacter:
+	if (v < 0x10000)
+		v = (v & 0x3F) | (v & 0x1F00) >> 2;
+	else
+		v = (v & 0x3F) | (v & 0x1F00) >> 2 | (v & 0x0F0000) >> 4;
+	report_noncharacter(aTHX_ v);
 }
 
 typedef struct {
@@ -142,6 +225,7 @@ static IV PerlIOUnicode_fill(pTHX_ PerlIO* f) {
 	PerlIO *n = PerlIONext(f);
 	SSize_t avail;
 	Size_t read_bytes = 0;
+	STDCHAR *end;
 
 	if (PerlIO_flush(f) != 0)
 		return -1;
@@ -207,24 +291,13 @@ static IV PerlIOUnicode_fill(pTHX_ PerlIO* f) {
 			return -1;
 		}
 	}
-	STDCHAR* end = b->buf + read_bytes;
+	end = b->buf + read_bytes;
 	b->end = b->buf;
-	while (b->end < end) {
-		if (is_complete((const U8*)b->end, (const U8*)end)) {
-			int len = is_valid((const U8 *)b->end, u->flags);
-			if (len)
-				b->end += len;
-			else 
-				Perl_croak(aTHX_ "Invalid unicode character");
-		}
-		else if (PerlIO_eof(n))
-			Perl_croak(aTHX_ "Invalid unicode character at file end");
-		else {
-			size_t len = b->buf + read_bytes - b->end;
-			Copy(b->end, u->leftovers, len, char);
-			u->leftover_length = len;
-			break;
-		}
+	b->end += validate(aTHX_ (const U8 *)b->end, (const U8 *)end, u->flags, PerlIO_eof(n));
+	if (b->end < end) {
+		size_t len = b->buf + read_bytes - b->end;
+		Copy(b->end, u->leftovers, len, char);
+		u->leftover_length = len;
 	}
 	PerlIOBase(f)->flags |= PERLIO_F_RDBUF;
 	
