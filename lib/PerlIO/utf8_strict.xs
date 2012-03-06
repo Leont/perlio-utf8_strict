@@ -107,9 +107,10 @@ static STRLEN validate(pTHX_ const U8 *buf, const U8 *end, const int flags, cons
 				/* 1110xxxx 10xxxxxx 10xxxxxx */
 				if ((v & 0x00F0C0C0) != 0x00E08080 ||
 					/* Non-shortest form */
-					v < 0x00E0A080 ||
-					/* Surrogates U+D800..U+DFFF */
-					(v & 0x00EFA080) == 0x00EDA080)
+					v < 0x00E0A080)
+					goto illformed;
+				/* Surrogates U+D800..U+DFFF */
+				if (!(flags & ALLOW_SURROGATES) && (v & 0x00EFA080) == 0x00EDA080)
 					goto illformed;
 				/* Non-characters U+FDD0..U+FDEF, U+FFFE..U+FFFF */
 				if (!(flags & ALLOW_NONCHARACTERS) && v >= 0x00EFB790 && (v <= 0x00EFB7AF || v >= 0x00EFBFBE))
