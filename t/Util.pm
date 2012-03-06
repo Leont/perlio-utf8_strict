@@ -77,18 +77,20 @@ sub slurp (*) {
     return do { local $/; <$fh> };
 }
 
-sub fh_with_octets ($) {
-    my ($octets) = @_;
+sub fh_with_octets ($;@) {
+    my ($octets, @args) = @_;
+
+    my $args = @args ? sprintf('(%s)', join ',', @args) : '';
 
     if (0) {
-        open(my $fh, '<:utf8_strict', \$octets)
+        open(my $fh, "<:utf8_strict${args}", \$octets)
           or die(qq/Couldn't open scalar fh: '$!'/);
         return $fh;
     }
     else {
         my $fh = tmpfile($octets);
-        binmode($fh, ':utf8_strict') 
-          or die(qq/Couldn't binmode :utf8_strict '$!'/);
+        binmode($fh, ":utf8_strict${args}")
+          or die(qq/Couldn't binmode :utf8_strict${args} '$!'/);
         return $fh;
     }
 }
