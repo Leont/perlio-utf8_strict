@@ -35,7 +35,7 @@ binmode $builder->todo_output,    ":utf8";
     open my $fh, '<:utf8_strict', $filename or die "Couldn't open file $filename";
 
     my $line;
-    throws_ok { $line = <$fh> } qr/^Invalid unicode character at /, 'Trying to read ill-formed encoded UTF-8 fails' or diag "Just read '$line'";
+    throws_ok { $line = <$fh> } qr/^Can't decode ill-formed UTF-8 octet sequence/, 'Trying to read ill-formed encoded UTF-8 fails' or diag "Just read '$line'";
 }
 
 done_testing;

@@ -19,7 +19,7 @@ for (my $cp = 0x80; $cp < 0x10FFFF; $cp += 0x1000) {
 
     throws_ok {
         slurp($fh);
-    } qr/Invalid unicode character/, $name;
+    } qr/^Can't decode ill-formed UTF-8 octet sequence/, $name;
 }
 
 done_testing;

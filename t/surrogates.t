@@ -17,7 +17,7 @@ foreach my $cp (@SURROGATES) {
 
     throws_ok {
         slurp($fh);
-    } qr/Invalid unicode character/, $name;
+    } qr/^Can't decode ill-formed UTF-8 octet sequence/, $name;
 }
 
 done_testing;
