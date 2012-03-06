@@ -17,14 +17,26 @@ my @NONCHARACTERS = (0xFDD0 .. 0xFDEF);
 
 foreach my $cp (@NONCHARACTERS) {
     my $octets = pack_utf8($cp);
-    my $name   = sprintf 'reading noncharacter U+%.4X <%s> throws an exception',
+    my $name   = sprintf 'reading noncharacter U+%.4X <%s> throws an exception when using strict',
       $cp, join ' ', map { sprintf '%.2X', ord $_ } split //, $octets;
 
     my $fh = fh_with_octets($octets);
 
     throws_ok {
         slurp($fh);
-    } qr/Invalid unicode character/, $name;
+    } qr/^Can't interchange noncharacter code point/, $name;
+}
+
+foreach my $cp (@NONCHARACTERS) {
+    my $octets = pack_utf8($cp);
+    my $name   = sprintf 'reading noncharacter U+%.4X <%s> succeeds when allow_noncharacters is set',
+      $cp, join ' ', map { sprintf '%.2X', ord $_ } split //, $octets;
+
+    my $fh = fh_with_octets($octets, 'allow_noncharacters');
+
+    lives_ok {
+        slurp($fh);
+    } $name;
 }
 
 done_testing;
