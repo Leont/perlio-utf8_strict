@@ -20,9 +20,34 @@ __END__
 
 This module provides a fast and correct UTF-8 PerlIO layer.
 
-=head1 SYNTAX
+=head1 LAYER ARGUMENTS
 
-The general syntax of the layer is in the form:
+=over 4
 
- :utf8_strict
+=item allow_noncharacters
+
+=item allow_surrogates
+
+=back
+
+=head1 EXPORT
+
+PerlIO::utf8_strict exports no subroutines or symbols, just a perl layer C<utf8_strict>
+
+=head1 DIAGNOSTICS
+
+=over 4
+
+=item Can't decode ill-formed UTF-8 octet sequence <%s>
+
+(F) Encountered an ill-formed UTF-8 octet sequence. <%s> contains a hexadecimal 
+representation of the maximal subpart of the ill-formed subsequence.
+
+=item Can't interchange noncharacter code point U+%.4X
+
+(F) Noncharacters is permanently reserved for internal use and that should 
+never be interchanged. Noncharacters consist of the values U+nFFFE and U+nFFFF 
+(where n is from 0 to 10^16) and the values U+FDD0..U+FDEF.
+
+=back
 
