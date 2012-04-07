@@ -77,7 +77,8 @@ static void report_noncharacter(pTHX_ UV usv) {
 	Perl_croak(aTHX_ fmt, usv);
 }
 
-static STRLEN validate(pTHX_ const U8 *buf, const U8 *end, const int flags, const bool eof) {
+static STRLEN validate(pTHX_ const U8 *buf, const U8 *end, const int flags, PerlIO* handle) {
+	const bool eof = PerlIO_eof(handle);
 	const U8 *cur = buf;
 	const U8 *end4 = end - 4;
 	STRLEN skip = 0;
@@ -149,6 +150,7 @@ static STRLEN validate(pTHX_ const U8 *buf, const U8 *end, const int flags, cons
   illformed:
 	if (!skip)
 		skip = skip_sequence(cur, end - cur);
+	PerlIOBase(handle)->flags |= PERLIO_F_ERROR;
 	report_illformed(aTHX_ cur, skip, eof);
 
   noncharacter:
@@ -156,6 +158,7 @@ static STRLEN validate(pTHX_ const U8 *buf, const U8 *end, const int flags, cons
 		v = (v & 0x3F) | (v & 0x1F00) >> 2;
 	else
 		v = (v & 0x3F) | (v & 0x1F00) >> 2 | (v & 0x0F0000) >> 4;
+	PerlIOBase(handle)->flags |= PERLIO_F_ERROR;
 	report_noncharacter(aTHX_ v);
 }
 
@@ -294,7 +297,7 @@ static IV PerlIOUnicode_fill(pTHX_ PerlIO* f) {
 	}
 	end = b->buf + read_bytes;
 	b->end = b->buf;
-	b->end += validate(aTHX_ (const U8 *)b->end, (const U8 *)end, u->flags, PerlIO_eof(n));
+	b->end += validate(aTHX_ (const U8 *)b->end, (const U8 *)end, u->flags, n);
 	if (b->end < end) {
 		size_t len = b->buf + read_bytes - b->end;
 		Copy(b->end, u->leftovers, len, char);
