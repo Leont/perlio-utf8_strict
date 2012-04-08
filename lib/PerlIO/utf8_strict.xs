@@ -182,7 +182,7 @@ static struct {
 };
 
 static int lookup_parameter(pTHX_ const char* ptr, size_t len) {
-	int i;
+	unsigned i;
 	for (i = 0; i < sizeof map / sizeof *map; ++i) {
 		if (map[i].length == len && memcmp(ptr, map[i].name, len) == 0)
 			return map[i].value;
@@ -191,11 +191,12 @@ static int lookup_parameter(pTHX_ const char* ptr, size_t len) {
 }
 static int parse_parameters(pTHX_ SV* param) {
 	STRLEN len;
+	const char *begin, *delim;
 	if (!param || !SvOK(param))
 		return 0;
 
-	const char* begin = SvPV(param, len);
-	const char* delim = strchr(begin, ',');
+	begin = SvPV(param, len);
+	delim = strchr(begin, ',');
 	if(delim) {
 		int ret = 0;
 		const char* end = begin + len;
@@ -230,6 +231,7 @@ static IV PerlIOUnicode_fill(pTHX_ PerlIO* f) {
 	SSize_t avail;
 	Size_t read_bytes = 0;
 	STDCHAR *end;
+	SSize_t fit;
 
 	if (PerlIO_flush(f) != 0)
 		return -1;
@@ -250,7 +252,7 @@ static IV PerlIOUnicode_fill(pTHX_ PerlIO* f) {
 	else {
 		b->ptr = b->end = b->buf;
 	}
-	const SSize_t fit = (SSize_t)b->bufsiz - (b->end - b->buf);
+	fit = (SSize_t)b->bufsiz - (b->end - b->buf);
 
 	if (!PerlIOValid(n)) {
 		PerlIOBase(f)->flags |= PERLIO_F_EOF;
@@ -290,7 +292,7 @@ static IV PerlIOUnicode_fill(pTHX_ PerlIO* f) {
 			read_bytes += avail;
 	}
 	if (avail <= 0) {
-		if (avail < 0 || read_bytes == 0 && PerlIO_eof(n)) {
+		if (avail < 0 || (read_bytes == 0 && PerlIO_eof(n))) {
 			PerlIOBase(f)->flags |= (avail == 0) ? PERLIO_F_EOF : PERLIO_F_ERROR;
 			return -1;
 		}
