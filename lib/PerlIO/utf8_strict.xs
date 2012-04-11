@@ -3,7 +3,7 @@
 #include "XSUB.h"
 #include "perliol.h"
 
-#define MAX_BYTES 4
+#define UTF8_MAX_BYTES 4
 
 static const U8 xs_utf8_sequence_len[0x100] = {
     1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, /* 0x00-0x0F */
@@ -53,7 +53,7 @@ static STRLEN skip_sequence(const U8 *cur, const STRLEN len) {
 static void report_illformed(pTHX_ const U8 *cur, STRLEN len, bool eof) {
 	static const char *hex = "0123456789ABCDEF";
 	const char *fmt;
-	char seq[MAX_BYTES * 3];
+	char seq[UTF8_MAX_BYTES * 3];
 	char *d = seq;
 
 	if (eof)
@@ -164,7 +164,7 @@ static STRLEN validate(pTHX_ const U8 *buf, const U8 *end, const int flags, Perl
 
 typedef struct {
 	PerlIOBuf buf;
-	STDCHAR leftovers[MAX_BYTES];
+	STDCHAR leftovers[UTF8_MAX_BYTES];
 	size_t leftover_length;
 	int flags;
 } PerlIOUnicode;
