@@ -82,7 +82,7 @@ static STRLEN validate(pTHX_ const U8 *buf, const U8 *end, const int flags, Perl
 	const U8 *cur = buf;
 	const U8 *end4 = end - 4;
 	STRLEN skip = 0;
-	uint32_t v;
+	U32 v;
 
 	while (cur < end4) {
 		while (cur < end4 && *cur < 0x80)
@@ -187,7 +187,7 @@ static int lookup_parameter(pTHX_ const char* ptr, size_t len) {
 		if (map[i].length == len && memcmp(ptr, map[i].name, len) == 0)
 			return map[i].value;
 	}
-	Perl_croak(aTHX_ "Unknown argument to :utf8_strict: %*s", len, ptr);
+	Perl_croak(aTHX_ "Unknown argument to :utf8_strict: %*s", (int)len, ptr);
 }
 static int parse_parameters(pTHX_ SV* param) {
 	STRLEN len;
