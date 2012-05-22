@@ -287,7 +287,7 @@ static IV PerlIOUnicode_fill(pTHX_ PerlIO* f) {
 		}
 	}
 	else {
-		avail = PerlIO_read(n, b->ptr, fit);
+		avail = PerlIO_read(n, b->end, fit);
 		if (avail > 0)
 			read_bytes += avail;
 	}
