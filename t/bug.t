@@ -15,4 +15,17 @@ lives_ok {
     my $data = do { local $/; <$fh> } 
 } q[successfull reading 8092 WHITE SMILING FACE's];
 
+{
+    my $line = 'ascii';
+    my ( $in, $out );
+    pipe $in, $out;
+    binmode $out, ':utf8_strict';
+    binmode $in,  ':utf8_strict';
+    syswrite $out, "...\n";
+    $line .= readline $in;
+
+    is($line, "ascii...\n", 'Appending from utf8 to ascii');
+}
+
+
 done_testing;
