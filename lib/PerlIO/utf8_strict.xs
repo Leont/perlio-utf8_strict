@@ -166,7 +166,7 @@ typedef struct {
 	PerlIOBuf buf;
 	STDCHAR leftovers[UTF8_MAX_BYTES];
 	size_t leftover_length;
-	int flags;
+	utf8_flags flags;
 } PerlIOUnicode;
 
 static struct {
@@ -181,7 +181,7 @@ static struct {
 	{ STR_WITH_LEN("loose"), ALLOW_SURROGATES | ALLOW_NONCHARACTERS | ALLOW_NONSHORTEST },
 };
 
-static int lookup_parameter(pTHX_ const char* ptr, size_t len) {
+static utf8_flags lookup_parameter(pTHX_ const char* ptr, size_t len) {
 	unsigned i;
 	for (i = 0; i < sizeof map / sizeof *map; ++i) {
 		if (map[i].length == len && memcmp(ptr, map[i].name, len) == 0)
@@ -189,7 +189,7 @@ static int lookup_parameter(pTHX_ const char* ptr, size_t len) {
 	}
 	Perl_croak(aTHX_ "Unknown argument to :utf8_strict: %*s", (int)len, ptr);
 }
-static int parse_parameters(pTHX_ SV* param) {
+static utf8_flags parse_parameters(pTHX_ SV* param) {
 	STRLEN len;
 	const char *begin, *delim;
 	if (!param || !SvOK(param))
@@ -198,7 +198,7 @@ static int parse_parameters(pTHX_ SV* param) {
 	begin = SvPV(param, len);
 	delim = strchr(begin, ',');
 	if(delim) {
-		int ret = 0;
+		utf8_flags ret = 0;
 		const char* end = begin + len;
 		do {
 			ret |= lookup_parameter(aTHX_ begin, delim - begin);
@@ -215,7 +215,7 @@ static int parse_parameters(pTHX_ SV* param) {
 }
 
 static IV PerlIOUnicode_pushed(pTHX_ PerlIO* f, const char* mode, SV* arg, PerlIO_funcs* tab) {
-	int flags = parse_parameters(aTHX_ arg);
+	utf8_flags flags = parse_parameters(aTHX_ arg);
 	if (PerlIOBuf_pushed(aTHX_ f, mode, arg, tab) == 0) {
 		PerlIOBase(f)->flags |= PERLIO_F_UTF8;
 		PerlIOSelf(f, PerlIOUnicode)->flags = flags;
