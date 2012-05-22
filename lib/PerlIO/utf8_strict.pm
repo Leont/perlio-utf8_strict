@@ -18,7 +18,7 @@ __END__
 
 =head1 DESCRIPTION
 
-This module provides a fast and correct UTF-8 PerlIO layer.
+This module provides a fast and correct UTF-8 PerlIO layer. Unlike perl's default C<:utf8> layer it checks the input for correctness.
 
 =head1 LAYER ARGUMENTS
 
