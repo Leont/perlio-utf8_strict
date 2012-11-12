@@ -154,10 +154,10 @@ static STRLEN validate(pTHX_ const U8 *buf, const U8 *end, const int flags, Perl
 	report_illformed(aTHX_ cur, skip, eof);
 
   noncharacter:
-	if (v < 0x10000)
-		v = (v & 0x3F) | (v & 0x1F00) >> 2;
+	if (v < 0xF0808080)
+		v = (v & 0x3F) | (v & 0x3F00) >> 2 | (v & 0x0F0000) >> 4;
 	else
-		v = (v & 0x3F) | (v & 0x1F00) >> 2 | (v & 0x0F0000) >> 4;
+		v = (v & 0x3F) | (v & 0x3F00) >> 2 | (v & 0x3F0000) >> 4 | (v & 0x07000000) >> 6;
 	PerlIOBase(handle)->flags |= PERLIO_F_ERROR;
 	report_noncharacter(aTHX_ v);
 }
