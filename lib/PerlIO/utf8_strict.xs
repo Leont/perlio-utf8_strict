@@ -214,7 +214,6 @@ static utf8_flags parse_parameters(pTHX_ SV* param) {
 	}
 }
 
-#ifdef WIN32
 void
 PerlIOBase_flush_linebuf(pTHX)
 {
@@ -224,7 +223,7 @@ PerlIOBase_flush_linebuf(pTHX)
     while ((f = *table)) {
 	int i;
 	table = (PerlIOl **) (f++);
-	for (i = 1; i < PERLIO_TABLE_SIZE; i++) {
+	for (i = 1; i < 64; i++) {
 	    if (f->next
 		&& (PerlIOBase(&(f->next))->
 		    flags & (PERLIO_F_LINEBUF | PERLIO_F_CANWRITE))
@@ -234,7 +233,6 @@ PerlIOBase_flush_linebuf(pTHX)
 	}
     }
 }
-#endif
 
 static IV PerlIOUnicode_pushed(pTHX_ PerlIO* f, const char* mode, SV* arg, PerlIO_funcs* tab) {
 	utf8_flags flags = parse_parameters(aTHX_ arg);
