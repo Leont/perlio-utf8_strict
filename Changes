@@ -1,6 +1,8 @@
 Revision history for PerlIO-utf8_strict
 
 {{$NEXT}}
+          Fixed conversion to code points in noncharacter error reporting
+          PerlIOBase_flush_linebuf is unresolved on some platforms, pull in a copy
 
 0.002     2012-05-30 20:43:21 Europe/Amsterdam
           Fix bug with non-buffered lower layers
