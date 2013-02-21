@@ -1,6 +1,8 @@
 Revision history for PerlIO-utf8_strict
 
 {{$NEXT}}
+
+0.003     2013-02-21 01:30:44 Europe/Amsterdam
           Fixed conversion to code points in noncharacter error reporting
           PerlIOBase_flush_linebuf is unresolved on some platforms, pull in a copy
 
