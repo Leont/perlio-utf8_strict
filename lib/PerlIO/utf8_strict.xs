@@ -217,7 +217,9 @@ static utf8_flags parse_parameters(pTHX_ SV* param) {
 #define line_buffered(flags) ((flags & (PERLIO_F_LINEBUF | PERLIO_F_CANWRITE)) == (PERLIO_F_LINEBUF | PERLIO_F_CANWRITE))
 
 void PerlIOBase_flush_linebuf(pTHX) {
+#ifdef dVAR
 	dVAR;
+#endif
 	PerlIOl **table = &PL_perlio;
 	PerlIOl *f;
 	while ((f = *table)) {
