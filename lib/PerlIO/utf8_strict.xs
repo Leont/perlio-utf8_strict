@@ -214,24 +214,21 @@ static utf8_flags parse_parameters(pTHX_ SV* param) {
 	}
 }
 
-void
-PerlIOBase_flush_linebuf(pTHX)
-{
-    dVAR;
-    PerlIOl **table = &PL_perlio;
-    PerlIOl *f;
-    while ((f = *table)) {
-	int i;
-	table = (PerlIOl **) (f++);
-	for (i = 1; i < 64; i++) {
-	    if (f->next
-		&& (PerlIOBase(&(f->next))->
-		    flags & (PERLIO_F_LINEBUF | PERLIO_F_CANWRITE))
-		== (PERLIO_F_LINEBUF | PERLIO_F_CANWRITE))
-		PerlIO_flush(&(f->next));
-	    f++;
+#define line_buffered(flags) ((flags & (PERLIO_F_LINEBUF | PERLIO_F_CANWRITE)) == (PERLIO_F_LINEBUF | PERLIO_F_CANWRITE))
+
+void PerlIOBase_flush_linebuf(pTHX) {
+	dVAR;
+	PerlIOl **table = &PL_perlio;
+	PerlIOl *f;
+	while ((f = *table)) {
+		int i;
+		table = (PerlIOl **) (f++);
+		for (i = 1; i < 64; i++) {
+			if (f->next && line_buffered(PerlIOBase(&(f->next))->flags))
+				PerlIO_flush(&(f->next));
+			f++;
+		}
 	}
-    }
 }
 
 static IV PerlIOUnicode_pushed(pTHX_ PerlIO* f, const char* mode, SV* arg, PerlIO_funcs* tab) {
