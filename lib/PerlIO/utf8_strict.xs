@@ -80,7 +80,7 @@ static void report_noncharacter(pTHX_ UV usv) {
 static STRLEN validate(pTHX_ const U8 *buf, const U8 *end, const int flags, PerlIO* handle) {
 	const bool eof = PerlIO_eof(handle);
 	const U8 *cur = buf;
-	const U8 *end4 = end - 4;
+	const U8 *end4 = end - UTF8_MAX_BYTES;
 	STRLEN skip = 0;
 	U32 v;
 
@@ -317,8 +317,7 @@ static IV PerlIOUnicode_fill(pTHX_ PerlIO* f) {
 		}
 	}
 	end = b->buf + read_bytes;
-	b->end = b->buf;
-	b->end += validate(aTHX_ (const U8 *)b->end, (const U8 *)end, u->flags, n);
+	b->end = b->buf + validate(aTHX_ (const U8 *)b->buf, (const U8 *)end, u->flags, n);
 	if (b->end < end) {
 		size_t len = b->buf + read_bytes - b->end;
 		Copy(b->end, u->leftovers, len, char);
