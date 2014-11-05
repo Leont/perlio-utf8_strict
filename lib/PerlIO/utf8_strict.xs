@@ -2,6 +2,7 @@
 #include "perl.h"
 #include "XSUB.h"
 #include "perliol.h"
+#include "ppport.h"
 
 #define UTF8_MAX_BYTES 4
 
