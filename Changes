@@ -1,6 +1,8 @@
 Revision history for PerlIO-utf8_strict
 
 {{$NEXT}}
+
+0.005     2014-11-06 00:56:54+01:00 Europe/Amsterdam
           Add PPPort to compile on perl <5.8.9
 
 0.004     2013-02-24 10:59:59 Europe/Amsterdam
