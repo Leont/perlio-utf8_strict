@@ -362,6 +362,8 @@ PERLIO_FUNCS_DECL(PerlIO_utf8_strict) = {
 
 MODULE = PerlIO::utf8_strict
 
+PROTOTYPES: DISABLE
+
 BOOT:
 	PerlIO_define_layer(aTHX_ &PerlIO_utf8_strict);
 
