@@ -1,6 +1,7 @@
 Revision history for PerlIO-utf8_strict
 
 {{$NEXT}}
+          - Adapt to dot no longer being in @INC
 
 0.006     2015-05-01 11:36:21+02:00 Europe/Amsterdam
           Move to MakeMaker

@@ -6,7 +6,8 @@ use utf8;
 
 use Test::More 0.88;
 use Test::Exception;
-use t::Util qw[fh_with_octets pack_utf8 slurp];
+use lib 't/lib';
+use Util qw[fh_with_octets pack_utf8 slurp];
 
 for (my $cp = 0x00; $cp < 0x10FFFF; $cp += 0x1000) {
     my $octets = pack_utf8($cp);

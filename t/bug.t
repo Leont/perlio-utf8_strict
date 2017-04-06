@@ -6,7 +6,8 @@ use utf8;
 
 use Test::More 0.88;
 use Test::Exception;
-use t::Util qw[fh_with_octets slurp];
+use lib 't/lib';
+use Util qw[fh_with_octets slurp];
 
 
 my $fh = fh_with_octets("\xE2\x98\xBA" x 8092);
