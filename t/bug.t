@@ -6,6 +6,7 @@ use utf8;
 
 use Test::More 0.88;
 use Test::Exception;
+use IO::Handle;
 use lib 't/lib';
 use Util qw[fh_with_octets slurp];
 
@@ -22,7 +23,8 @@ lives_ok {
     pipe $in, $out;
     binmode $out, ':utf8_strict';
     binmode $in,  ':utf8_strict';
-    syswrite $out, "...\n";
+    print $out "...\n";
+    $out->flush;
     $line .= readline $in;
 
     is($line, "ascii...\n", 'Appending from utf8 to ascii');
