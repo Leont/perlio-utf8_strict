@@ -1,6 +1,7 @@
 Revision history for PerlIO-utf8_strict
 
 {{$NEXT}}
+          - Make unread by :crlf on top of :utf8_strict reliable
 
 0.007     2017-04-06 14:58:37+02:00 Europe/Amsterdam
           - Adapt to dot no longer being in @INC

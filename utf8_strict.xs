@@ -342,7 +342,7 @@ PERLIO_FUNCS_DECL(PerlIO_utf8_strict) = {
 	PerlIOBase_fileno,
 	PerlIOBuf_dup,
 	PerlIOBuf_read,
-	PerlIOBuf_unread,
+	PerlIOBase_unread,
 	PerlIOBuf_write,
 	PerlIOBuf_seek,
 	PerlIOBuf_tell,
