@@ -29,6 +29,10 @@ This module provides a fast and correct UTF-8 PerlIO layer. Unlike perl's defaul
 
 =item allow_surrogates
 
+=item allow_nonshortest
+
+These arguments are accepted for compatibility, but currently have no effect.
+
 =back
 
 =head1 EXPORT
@@ -44,11 +48,4 @@ PerlIO::utf8_strict exports no subroutines or symbols, just a perl layer C<utf8_
 (F) Encountered an ill-formed UTF-8 octet sequence. <%s> contains a hexadecimal 
 representation of the maximal subpart of the ill-formed subsequence.
 
-=item Can't interchange noncharacter code point U+%.4X
-
-(F) Noncharacters is permanently reserved for internal use and that should 
-never be interchanged. Noncharacters consist of the values U+nFFFE and U+nFFFF 
-(where n is from 0 to 10^16) and the values U+FDD0..U+FDEF.
-
 =back
-

@@ -29,5 +29,17 @@ foreach my $cp (@tests) {
     }
 }
 
-done_testing;
+foreach my $cp (@tests) {
+    foreach my $sequence (pack_overlong_utf8($cp)) {
+        my $name = sprintf 'reading non-shortest form representation of U+%.4X <%s> still throws when allow_nonshortest is set',
+          $cp, join ' ', map { sprintf '%.2X', ord $_ } split //, $sequence;
 
+        my $fh = fh_with_octets($sequence, 'allow_nonshortest');
+
+        throws_ok {
+            slurp($fh);
+        } qr/^Can't decode ill-formed UTF-8 octet sequence/, $name;
+    }
+}
+
+done_testing;

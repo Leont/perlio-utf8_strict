@@ -4,51 +4,53 @@
 #include "perliol.h"
 #include "ppport.h"
 
+#include "utf8_dfa32.h"
+#include "utf8_valid_stream.h"
+
 #define UTF8_MAX_BYTES 4
 
-static const U8 xs_utf8_sequence_len[0x100] = {
-    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, /* 0x00-0x0F */
-    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, /* 0x10-0x1F */
-    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, /* 0x20-0x2F */
-    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, /* 0x30-0x3F */
-    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, /* 0x40-0x4F */
-    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, /* 0x50-0x5F */
-    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, /* 0x60-0x6F */
-    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, /* 0x70-0x7F */
-    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, /* 0x80-0x8F */
-    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, /* 0x90-0x9F */
-    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, /* 0xA0-0xAF */
-    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, /* 0xB0-0xBF */
-    0,0,2,2,2,2,2,2,2,2,2,2,2,2,2,2, /* 0xC0-0xCF */
-    2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2, /* 0xD0-0xDF */
-    3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3, /* 0xE0-0xEF */
-    4,4,4,4,4,0,0,0,0,0,0,0,0,0,0,0, /* 0xF0-0xFF */
-};
+typedef enum {
+	ALLOW_SURROGATES = 1,
+	ALLOW_NONCHARACTERS = 2,
+	ALLOW_NONSHORTEST = 4
+} utf8_flags;
 
+static STRLEN utf8_maximal_subpart(const U8 *src, STRLEN len) {
+	U32 v;
 
-typedef enum { STRICT_UTF8=0, ALLOW_SURROGATES=1, ALLOW_NONCHARACTERS=2, ALLOW_NONSHORTEST=4 } utf8_flags;
+	if (len < 2)
+		return len ? len : 1;
 
-
-static STRLEN skip_sequence(const U8 *cur, const STRLEN len) {
-	STRLEN i, n = xs_utf8_sequence_len[*cur];
-
-	if (n < 1 || len < 2)
+	v = ((U32)src[0] << 8) | (U32)src[1];
+	if ((v & 0xC0C0) != 0xC080)
 		return 1;
 
-	switch (cur[0]) {
-		case 0xE0: if ((cur[1] & 0xE0) != 0xA0) return 1; break;
-		case 0xED: if ((cur[1] & 0xE0) != 0x80) return 1; break;
-		case 0xF4: if ((cur[1] & 0xF0) != 0x80) return 1; break;
-		case 0xF0: if ((cur[1] & 0xF0) == 0x80) return 1; /* FALLTROUGH */
-		default:   if ((cur[1] & 0xC0) != 0x80) return 1; break;
+	if ((v & 0x2000) == 0) {
+		v &= 0x1E00;
+		return v == 0 ? 1 : 2;
 	}
 
-	if (n > len)
-		n = len;
-	for (i = 2; i < n; i++)
-		if ((cur[i] & 0xC0) != 0x80)
-			break;
-	return i;
+	if ((v & 0x1000) == 0) {
+		v &= 0x0F20;
+		if (v == 0 || v == 0x0D20)
+			return 1;
+		if (len < 3 || (src[2] & 0xC0) != 0x80)
+			return 2;
+		return 3;
+	}
+
+	if ((v & 0x0800) == 0) {
+		v &= 0x0730;
+		if (v == 0 || v > 0x0400)
+			return 1;
+		if (len < 3 || (src[2] & 0xC0) != 0x80)
+			return 2;
+		if (len < 4 || (src[3] & 0xC0) != 0x80)
+			return 3;
+		return 4;
+	}
+
+	return 1;
 }
 
 #if defined(PERL_STATIC_NO_RET) && defined(__attribute__noreturn__)
@@ -79,151 +81,84 @@ static void report_illformed(pTHX_ const U8 *cur, STRLEN len, bool eof) {
 	Perl_croak(aTHX_ fmt, seq);
 }
 
-#if defined(PERL_STATIC_NO_RET) && defined(__attribute__noreturn__)
-PERL_STATIC_NO_RET void report_noncharacter(pTHX_ UV usv) __attribute__noreturn__;
-#elif defined(__attribute__noreturn__)
-static void report_noncharacter(pTHX_ UV usv) __attribute__noreturn__;
-#endif
-
-static void report_noncharacter(pTHX_ UV usv) {
-	static const char *fmt = "Can't interchange noncharacter code point U+%"UVXf;
-	Perl_croak(aTHX_ fmt, usv);
+static STRLEN stream_valid_bytes(STRLEN carried, utf8_valid_stream_result_t result) {
+	return result.consumed + ((carried > 0 && result.consumed > 0) ? carried : 0);
 }
 
-static STRLEN validate(pTHX_ const U8 *buf, const U8 *end, const int flags, PerlIO* handle) {
+static STRLEN validate_streaming(pTHX_ utf8_valid_stream_t *stream, const U8 *source, STRLEN source_length, STRLEN carried, PerlIO *handle) {
 	const bool eof = PerlIO_eof(handle);
-	const U8 *cur = buf;
-	const U8 *end4 = end - UTF8_MAX_BYTES;
-	STRLEN skip = 0;
-	U32 v;
+	utf8_valid_stream_result_t result;
+	STRLEN valid_bytes;
 
-	while (cur < end4) {
-		while (cur < end4 && *cur < 0x80)
-			cur++;
+	result = utf8_valid_stream_check(stream, (const char *)source + carried, source_length - carried, eof);
+	valid_bytes = stream_valid_bytes(carried, result);
 
-	  check:
-		switch (xs_utf8_sequence_len[*cur]) {
-			case 0:
-				goto illformed;
-			case 1:
-				cur += 1;
-				break;
-			case 2:
-				/* 110xxxxx 10xxxxxx */
-				if ((cur[1] & 0xC0) != 0x80)
-					goto illformed;
-				cur += 2;
-				break;
-			case 3:
-				v = ((U32)cur[0] << 16)
-				  | ((U32)cur[1] <<  8)
-				  | ((U32)cur[2]);
-				/* 1110xxxx 10xxxxxx 10xxxxxx */
-				if ((v & 0x00F0C0C0) != 0x00E08080 ||
-					/* Non-shortest form */
-					v < 0x00E0A080)
-					goto illformed;
-				/* Surrogates U+D800..U+DFFF */
-				if (!(flags & ALLOW_SURROGATES) && (v & 0x00EFA080) == 0x00EDA080)
-					goto illformed;
-				/* Non-characters U+FDD0..U+FDEF, U+FFFE..U+FFFF */
-				if (!(flags & ALLOW_NONCHARACTERS) && v >= 0x00EFB790 && (v <= 0x00EFB7AF || v >= 0x00EFBFBE))
-					goto noncharacter;
-				cur += 3;
-				break;
-			case 4:
-				v = ((U32)cur[0] << 24)
-				  | ((U32)cur[1] << 16)
-				  | ((U32)cur[2] <<  8)
-				  | ((U32)cur[3]);
-				/* 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx */
-				if ((v & 0xF8C0C0C0) != 0xF0808080 ||
-					/* Non-shortest form */
-					v < 0xF0908080 ||
-					/* Greater than U+10FFFF */
-					v > 0xF48FBFBF)
-					goto illformed;
-				/* Non-characters U+nFFFE..U+nFFFF on plane 1-16 */
-				if (!(flags & ALLOW_NONCHARACTERS) && (v & 0x000FBFBE) == 0x000FBFBE)
-					goto noncharacter;
-				cur += 4;
-				break;
+	switch (result.status) {
+		case UTF8_VALID_STREAM_OK:
+		case UTF8_VALID_STREAM_PARTIAL:
+			break;
+
+		case UTF8_VALID_STREAM_ILLFORMED:
+		case UTF8_VALID_STREAM_TRUNCATED:
+		{
+			const STRLEN bad_len = (result.status == UTF8_VALID_STREAM_TRUNCATED)
+				? (source_length - valid_bytes)
+				: utf8_maximal_subpart(source + valid_bytes, source_length - valid_bytes);
+			PerlIOBase(handle)->flags |= PERLIO_F_ERROR;
+			report_illformed(aTHX_ source + valid_bytes, bad_len, eof);
+			break;
 		}
 	}
-	
-	if (cur < end) {
-		if (cur + xs_utf8_sequence_len[*cur] <= end)
-			goto check;
-		skip = skip_sequence(cur, end - cur);
-		if (eof || cur + skip < end)
-			goto illformed;
-	}
-	return cur - buf;
 
-  illformed:
-	if (!skip)
-		skip = skip_sequence(cur, end - cur);
-	PerlIOBase(handle)->flags |= PERLIO_F_ERROR;
-	report_illformed(aTHX_ cur, skip, eof);
-
-  noncharacter:
-	if (v < 0xF0808080)
-		v = (v & 0x3F) | (v & 0x3F00) >> 2 | (v & 0x0F0000) >> 4;
-	else
-		v = (v & 0x3F) | (v & 0x3F00) >> 2 | (v & 0x3F0000) >> 4 | (v & 0x07000000) >> 6;
-	PerlIOBase(handle)->flags |= PERLIO_F_ERROR;
-	report_noncharacter(aTHX_ v);
+	return valid_bytes;
 }
 
 typedef struct {
 	PerlIOBuf buf;
-	STDCHAR leftovers[UTF8_MAX_BYTES];
-	size_t leftover_length;
-	utf8_flags flags;
+	utf8_valid_stream_t stream;
+	size_t pending_offset;
+	size_t pending_length;
 } PerlIOUnicode;
 
 static struct {
 	const char* name;
 	size_t length;
-	utf8_flags value;
 } map[] = {
-	{ STR_WITH_LEN("allow_surrogates"), ALLOW_SURROGATES },
-	{ STR_WITH_LEN("allow_noncharacters"), ALLOW_NONCHARACTERS },
-	{ STR_WITH_LEN("allow_nonshortest"), ALLOW_NONSHORTEST },
-	{ STR_WITH_LEN("strict"), 0 },
-	{ STR_WITH_LEN("loose"), ALLOW_SURROGATES | ALLOW_NONCHARACTERS | ALLOW_NONSHORTEST },
+	{ STR_WITH_LEN("allow_surrogates") },
+	{ STR_WITH_LEN("allow_noncharacters") },
+	{ STR_WITH_LEN("allow_nonshortest") },
+	{ STR_WITH_LEN("strict") },
+	{ STR_WITH_LEN("loose") },
 };
 
-static utf8_flags lookup_parameter(pTHX_ const char* ptr, size_t len) {
+static void validate_parameter(pTHX_ const char* ptr, size_t len) {
 	unsigned i;
 	for (i = 0; i < sizeof map / sizeof *map; ++i) {
 		if (map[i].length == len && memcmp(ptr, map[i].name, len) == 0)
-			return map[i].value;
+			return;
 	}
 	Perl_croak(aTHX_ "Unknown argument to :utf8_strict: %*s", (int)len, ptr);
 }
-static utf8_flags parse_parameters(pTHX_ SV* param) {
+static void validate_parameters(pTHX_ SV* param) {
 	STRLEN len;
 	const char *begin, *delim;
 	if (!param || !SvOK(param))
-		return 0;
+		return;
 
 	begin = SvPV(param, len);
 	delim = strchr(begin, ',');
-	if(delim) {
-		utf8_flags ret = 0;
-		const char* end = begin + len;
+	if (delim) {
+		const char *end = begin + len;
 		do {
-			ret |= lookup_parameter(aTHX_ begin, delim - begin);
+			validate_parameter(aTHX_ begin, delim - begin);
 			begin = delim + 1;
 			delim = strchr(begin, ',');
 		} while (delim);
 		if (begin < end)
-			ret |= lookup_parameter(aTHX_ begin, end - begin);
-		return ret;
+			validate_parameter(aTHX_ begin, end - begin);
 	}
 	else {
-		return lookup_parameter(aTHX_ begin, len);
+		validate_parameter(aTHX_ begin, len);
 	}
 }
 
@@ -246,50 +181,11 @@ void PerlIOBase_flush_linebuf(pTHX) {
 	}
 }
 
-static IV PerlIOUnicode_pushed(pTHX_ PerlIO* f, const char* mode, SV* arg, PerlIO_funcs* tab) {
-	utf8_flags flags = parse_parameters(aTHX_ arg);
-	if (PerlIOBuf_pushed(aTHX_ f, mode, arg, tab) == 0) {
-		PerlIOBase(f)->flags |= PERLIO_F_UTF8;
-		PerlIOSelf(f, PerlIOUnicode)->flags = flags;
-		return 0;
-	}
-	return -1;
-}
-
-static IV PerlIOUnicode_fill(pTHX_ PerlIO* f) {
-	PerlIOUnicode * const u = PerlIOSelf(f, PerlIOUnicode);
-	PerlIOBuf * const b = &u->buf;
-	PerlIO *n = PerlIONext(f);
+static SSize_t read_from_next_layer(PerlIO *n, STDCHAR *dst, SSize_t fit) {
 	SSize_t avail;
-	Size_t read_bytes = 0;
-	STDCHAR *end;
-	SSize_t fit;
 
-	if (PerlIO_flush(f) != 0)
-		return -1;
-	if (PerlIOBase(f)->flags & PERLIO_F_TTY)
-		PerlIOBase_flush_linebuf(aTHX);
-
-	if (!b->buf)
-		PerlIO_get_base(f);
-
-	assert(b->buf);
-
-	if (u->leftover_length) {
-		Copy(u->leftovers, b->buf, u->leftover_length, STDCHAR);
-		b->end = b->buf + u->leftover_length;
-		read_bytes = u->leftover_length;
-		u->leftover_length = 0;
-	}
-	else {
-		b->ptr = b->end = b->buf;
-	}
-	fit = (SSize_t)b->bufsiz - (b->end - b->buf);
-
-	if (!PerlIOValid(n)) {
-		PerlIOBase(f)->flags |= PERLIO_F_EOF;
-		return -1;
-	}
+	if (fit <= 0)
+		return 0;
 
 	if (PerlIO_fast_gets(n)) {
 		/*
@@ -313,29 +209,101 @@ static IV PerlIOUnicode_fill(pTHX_ PerlIO* f) {
 			const SSize_t cnt = avail;
 			if (avail > fit)
 				avail = fit;
-			Copy(ptr, b->end, avail, STDCHAR);
+			Copy(ptr, dst, avail, STDCHAR);
 			PerlIO_set_ptrcnt(n, ptr + avail, cnt - avail);
-			read_bytes += avail;
 		}
+		return avail;
 	}
-	else {
-		avail = PerlIO_read(n, b->end, fit);
-		if (avail > 0)
-			read_bytes += avail;
+
+	return PerlIO_read(n, dst, fit);
+}
+
+static IV fill_strict(pTHX_ PerlIO* f, PerlIOUnicode *u, PerlIOBuf *b, PerlIO *n) {
+	SSize_t avail;
+	SSize_t fit;
+	STRLEN read_bytes = 0;
+	STRLEN valid_bytes;
+	const STRLEN carried = u->pending_length;
+
+	/* Keep a split UTF-8 tail in b->buf and only compact when it reaches the end. */
+	if (carried && u->pending_offset + carried == b->bufsiz) {
+		Move(b->buf + u->pending_offset, b->buf, carried, STDCHAR);
+		u->pending_offset = 0;
 	}
+
+	b->ptr = b->end = b->buf + u->pending_offset;
+	b->end += carried;
+	fit = (SSize_t)b->bufsiz - (SSize_t)(u->pending_offset + carried);
+
+	avail = read_from_next_layer(n, b->end, fit);
+	if (avail > 0)
+		read_bytes = carried + avail;
+	else
+		read_bytes = carried;
+
 	if (avail <= 0) {
 		if (avail < 0 || (read_bytes == 0 && PerlIO_eof(n))) {
 			PerlIOBase(f)->flags |= (avail == 0) ? PERLIO_F_EOF : PERLIO_F_ERROR;
 			return -1;
 		}
 	}
-	end = b->buf + read_bytes;
-	b->end = b->buf + validate(aTHX_ (const U8 *)b->buf, (const U8 *)end, u->flags, n);
-	if (b->end < end) {
-		size_t len = b->buf + read_bytes - b->end;
-		Copy(b->end, u->leftovers, len, char);
-		u->leftover_length = len;
+
+	valid_bytes = validate_streaming(aTHX_ &u->stream,
+																	 (const U8*)(b->buf + u->pending_offset),
+																	 read_bytes,
+																	 carried,
+																	 n);
+
+	b->ptr = b->buf + u->pending_offset;
+	b->end = b->ptr + valid_bytes;
+
+	if (valid_bytes < read_bytes) {
+		u->pending_offset += valid_bytes;
+		u->pending_length = read_bytes - valid_bytes;
 	}
+	else {
+		u->pending_offset = 0;
+		u->pending_length = 0;
+	}
+
+	return 0;
+}
+
+static IV PerlIOUnicode_pushed(pTHX_ PerlIO* f, const char* mode, SV* arg, PerlIO_funcs* tab) {
+	validate_parameters(aTHX_ arg);
+	if (PerlIOBuf_pushed(aTHX_ f, mode, arg, tab) == 0) {
+		PerlIOBase(f)->flags |= PERLIO_F_UTF8;
+		PerlIOSelf(f, PerlIOUnicode)->pending_offset = 0;
+		PerlIOSelf(f, PerlIOUnicode)->pending_length = 0;
+		utf8_valid_stream_init(&PerlIOSelf(f, PerlIOUnicode)->stream);
+		return 0;
+	}
+	return -1;
+}
+
+static IV PerlIOUnicode_fill(pTHX_ PerlIO* f) {
+	PerlIOUnicode * const u = PerlIOSelf(f, PerlIOUnicode);
+	PerlIOBuf * const b = &u->buf;
+	PerlIO *n = PerlIONext(f);
+
+	if (PerlIO_flush(f) != 0)
+		return -1;
+	if (PerlIOBase(f)->flags & PERLIO_F_TTY)
+		PerlIOBase_flush_linebuf(aTHX);
+
+	if (!b->buf)
+		PerlIO_get_base(f);
+
+	assert(b->buf);
+
+	if (!PerlIOValid(n)) {
+		PerlIOBase(f)->flags |= PERLIO_F_EOF;
+		return -1;
+	}
+
+	if (fill_strict(aTHX_ f, u, b, n) != 0)
+		return -1;
+
 	PerlIOBase(f)->flags |= PERLIO_F_RDBUF;
 	
 	return 0;
@@ -378,4 +346,3 @@ PROTOTYPES: DISABLE
 
 BOOT:
 	PerlIO_define_layer(aTHX_ (PerlIO_funcs*)&PerlIO_utf8_strict);
-

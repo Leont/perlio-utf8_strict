@@ -24,12 +24,11 @@ foreach my $cp (@SURROGATES) {
 foreach my $cp (@SURROGATES) {
     my $fh = fh_with_octets(pack_utf8($cp), 'allow_surrogates');
 
-    my $name = sprintf 'reading encoded surrogate U+%.4X succeeds when allow_surrogates is set', $cp;
+    my $name = sprintf 'reading encoded surrogate U+%.4X still throws when allow_surrogates is set', $cp;
 
-    lives_ok {
+    throws_ok {
         slurp($fh);
-    } $name;
+    } qr/^Can't decode ill-formed UTF-8 octet sequence/, $name;
 }
 
 done_testing;
-
