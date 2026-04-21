@@ -15,44 +15,6 @@ typedef enum {
 	ALLOW_NONSHORTEST = 4
 } utf8_flags;
 
-static STRLEN utf8_maximal_subpart(const U8 *src, STRLEN len) {
-	U32 v;
-
-	if (len < 2)
-		return len ? len : 1;
-
-	v = ((U32)src[0] << 8) | (U32)src[1];
-	if ((v & 0xC0C0) != 0xC080)
-		return 1;
-
-	if ((v & 0x2000) == 0) {
-		v &= 0x1E00;
-		return v == 0 ? 1 : 2;
-	}
-
-	if ((v & 0x1000) == 0) {
-		v &= 0x0F20;
-		if (v == 0 || v == 0x0D20)
-			return 1;
-		if (len < 3 || (src[2] & 0xC0) != 0x80)
-			return 2;
-		return 3;
-	}
-
-	if ((v & 0x0800) == 0) {
-		v &= 0x0730;
-		if (v == 0 || v > 0x0400)
-			return 1;
-		if (len < 3 || (src[2] & 0xC0) != 0x80)
-			return 2;
-		if (len < 4 || (src[3] & 0xC0) != 0x80)
-			return 3;
-		return 4;
-	}
-
-	return 1;
-}
-
 #if defined(PERL_STATIC_NO_RET) && defined(__attribute__noreturn__)
 PERL_STATIC_NO_RET void report_illformed(pTHX_ const U8 *cur, STRLEN len, bool eof) __attribute__noreturn__;
 #elif defined(__attribute__noreturn__)
@@ -81,17 +43,15 @@ static void report_illformed(pTHX_ const U8 *cur, STRLEN len, bool eof) {
 	Perl_croak(aTHX_ fmt, seq);
 }
 
-static STRLEN stream_valid_bytes(STRLEN carried, utf8_valid_stream_result_t result) {
-	return result.consumed + ((carried > 0 && result.consumed > 0) ? carried : 0);
-}
-
 static STRLEN validate_streaming(pTHX_ utf8_valid_stream_t *stream, const U8 *source, STRLEN source_length, STRLEN carried, PerlIO *handle) {
+	const U8 *chunk = source + carried;
 	const bool eof = PerlIO_eof(handle);
 	utf8_valid_stream_result_t result;
-	STRLEN valid_bytes;
+	STRLEN valid_bytes = 0;
 
-	result = utf8_valid_stream_check(stream, (const char *)source + carried, source_length - carried, eof);
-	valid_bytes = stream_valid_bytes(carried, result);
+	result = utf8_valid_stream_check(stream, (const char *)chunk, source_length - carried, eof);
+	if (result.consumed > 0)
+		valid_bytes = carried + result.consumed;
 
 	switch (result.status) {
 		case UTF8_VALID_STREAM_OK:
@@ -101,11 +61,10 @@ static STRLEN validate_streaming(pTHX_ utf8_valid_stream_t *stream, const U8 *so
 		case UTF8_VALID_STREAM_ILLFORMED:
 		case UTF8_VALID_STREAM_TRUNCATED:
 		{
-			const STRLEN bad_len = (result.status == UTF8_VALID_STREAM_TRUNCATED)
-				? (source_length - valid_bytes)
-				: utf8_maximal_subpart(source + valid_bytes, source_length - valid_bytes);
+			const U8 *bad = chunk + result.consumed - result.carried;
+			const STRLEN bad_len = result.carried + result.advance;
 			PerlIOBase(handle)->flags |= PERLIO_F_ERROR;
-			report_illformed(aTHX_ source + valid_bytes, bad_len, eof);
+			report_illformed(aTHX_ bad, bad_len, eof);
 			break;
 		}
 	}
@@ -248,11 +207,13 @@ static IV fill_strict(pTHX_ PerlIO* f, PerlIOUnicode *u, PerlIOBuf *b, PerlIO *n
 		}
 	}
 
-	valid_bytes = validate_streaming(aTHX_ &u->stream,
-																	 (const U8*)(b->buf + u->pending_offset),
-																	 read_bytes,
-																	 carried,
-																	 n);
+	valid_bytes = validate_streaming(
+		aTHX_ &u->stream,
+		(const U8 *)(b->buf + u->pending_offset),
+		read_bytes,
+		carried,
+		n
+	);
 
 	b->ptr = b->buf + u->pending_offset;
 	b->end = b->ptr + valid_bytes;

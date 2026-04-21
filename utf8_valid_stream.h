@@ -59,12 +59,14 @@ typedef enum {
  *   pending:   bytes of an incomplete trailing sequence on PARTIAL, else 0.
  *   advance:   bytes to skip on ILLFORMED or TRUNCATED, else 0.
  *              Resume at src[consumed + advance].
+ *   carried:   bytes from a previous chunk that belong to the same subpart.
  */
 typedef struct {
   utf8_valid_stream_status_t status;
   size_t consumed;
   size_t pending;
   size_t advance;
+  size_t carried;
 } utf8_valid_stream_result_t;
 
 typedef struct {
@@ -96,36 +98,42 @@ utf8_valid_stream_init(utf8_valid_stream_t *s) {
  *   pending:   bytes of an incomplete trailing sequence on PARTIAL, else 0.
  *   advance:   bytes to skip on ILLFORMED or TRUNCATED, else 0.
  *              Resume at src[consumed + advance].
+ *   carried:   bytes from a previous chunk that belong to the same subpart.
  *
- * On ILLFORMED or TRUNCATED the stream state is reset to UTF8_DFA_ACCEPT.
+ * On ILLFORMED or TRUNCATED:
+ *
+ *   subpart length = carried + advance
+ *   subpart start  = src + consumed - carried   (chunk-relative)
+ *
+ * and the stream state is reset to UTF8_DFA_ACCEPT.
  */
 static inline utf8_valid_stream_result_t
 utf8_valid_stream_check(utf8_valid_stream_t* s,
                         const char* src,
                         size_t len,
                         bool eof) {
-  const unsigned char* p = (const unsigned char*)src;
+  const uint8_t* bytes = (const uint8_t*)src;
   utf8_dfa_state_t state = s->state;
   size_t carried = s->pending;
   size_t consumed = 0;
   size_t chunk_bytes = 0;
-  size_t i = 0;
+  size_t pos = 0;
 
   if (state == UTF8_DFA_ACCEPT && len >= 16) {
     do {
-      if (utf8_dfa_run16(UTF8_DFA_ACCEPT, p + i) != UTF8_DFA_ACCEPT)
+      if (utf8_dfa_run16(UTF8_DFA_ACCEPT, bytes + pos) != UTF8_DFA_ACCEPT)
         break;
-      i += 16;
-    } while (len - i >= 16);
-    consumed = i;
+      pos += 16;
+    } while (len - pos >= 16);
+    consumed = pos;
   }
 
-  for (; i < len; i++) {
-    state = utf8_dfa_step(state, p[i]);
+  for (; pos < len; pos++) {
+    state = utf8_dfa_step(state, bytes[pos]);
     chunk_bytes++;
 
     if (state == UTF8_DFA_ACCEPT) {
-      consumed = i + 1;
+      consumed = pos + 1;
       carried = 0;
       chunk_bytes = 0;
     }
@@ -139,6 +147,7 @@ utf8_valid_stream_check(utf8_valid_stream_t* s,
         .consumed = carried ? 0 : consumed,
         .pending  = 0,
         .advance  = advance,
+        .carried  = carried,
       };
     }
   }
@@ -151,6 +160,7 @@ utf8_valid_stream_check(utf8_valid_stream_t* s,
       .consumed = len,
       .pending  = 0,
       .advance  = 0,
+      .carried  = 0,
     };
   }
 
@@ -162,6 +172,7 @@ utf8_valid_stream_check(utf8_valid_stream_t* s,
       .consumed = carried ? 0 : consumed,
       .pending  = 0,
       .advance  = chunk_bytes,
+      .carried  = carried,
     };
   }
 
@@ -172,6 +183,7 @@ utf8_valid_stream_check(utf8_valid_stream_t* s,
     .consumed = consumed,
     .pending  = carried + chunk_bytes,
     .advance  = 0,
+    .carried  = 0,
   };
 }
 
