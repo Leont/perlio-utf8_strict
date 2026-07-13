@@ -4,6 +4,7 @@
 #include "perliol.h"
 #include "ppport.h"
 
+#define UTF8_VALID_STREAM_PROBE_WINDOW_SIZE 1024
 #include "utf8_dfa32.h"
 #include "utf8_valid_stream.h"
 
